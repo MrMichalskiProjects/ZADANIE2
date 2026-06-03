@@ -17,7 +17,7 @@ env:
   IMAGE_NAME: ${{ github.repository }}
   # Dedykowane, publiczne repo cache na Docker Hub. Nazwe uzytkownika trzymamy
   # w zmiennej repo (Settings -> Secrets and variables -> Actions -> Variables).
-  CACHE_REF: docker.io/${{ vars.DOCKERHUB_USERNAME }}/apka1-cache:buildcache
+  CACHE_REF: docker.io/${{ secrets.DOCKERHUB_USERNAME }}/apka1-cache:buildcache
 
 # Najmniejsze potrzebne uprawnienia tokenu GITHUB_TOKEN
 permissions:
@@ -55,7 +55,7 @@ jobs:
       - name: Log in to Docker Hub (cache)
         uses: docker/login-action@v3
         with:
-          username: ${{ vars.DOCKERHUB_USERNAME }}
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       # Generowanie tagow i etykiet OCI na podstawie zdarzenia gita
