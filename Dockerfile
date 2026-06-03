@@ -26,8 +26,11 @@ RUN "$JAVA_HOME/bin/jlink" \
       --output /opt/jre
 
 # Zbieramy biblioteki  konieczne do uruchomienia java na scratch
+# Loader musl ma nazwe zalezna od architektury (ld-musl-x86_64 / ld-musl-aarch64),
+# dlatego uzywamy globa zamiast sztywnej nazwy - dzieki temu obraz buduje sie
+# zarowno dla linux/amd64 jak i linux/arm64.
 RUN mkdir -p /rootfs/lib /rootfs/usr/lib /rootfs/tmp /rootfs/app \
- && cp /lib/ld-musl-x86_64.so.1     /rootfs/lib/ \
+ && cp /lib/ld-musl-*.so.1          /rootfs/lib/ \
  && cp /usr/lib/libz.so.1           /rootfs/usr/lib/ \
  && cp /usr/lib/libstdc++.so.6      /rootfs/usr/lib/ \
  && cp /usr/lib/libgcc_s.so.1       /rootfs/usr/lib/ \

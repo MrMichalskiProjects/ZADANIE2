@@ -1,0 +1,130 @@
+name: build-publish
+
+# Buduje wieloarchitekturowy obraz z Dockerfile (zadanie 1), skanuje go pod katem
+# CVE i publikuje do publicznego repozytorium autora na GitHub Packages (ghcr.io)
+# tylko wtedy, gdy skan nie wykryje podatnosci CRITICAL/HIGH.
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*.*.*']          # wydania semver: v1.2.3
+  pull_request:               # na PR-ach budujemy i skanujemy, ale NIE publikujemy
+  workflow_dispatch:          # mozliwosc recznego uruchomienia
+
+env:
+  REGISTRY: ghcr.io
+  # Obraz koncowy: ghcr.io/<owner>/<repo>  (metadata-action sam zamienia na male litery)
+  IMAGE_NAME: ${{ github.repository }}
+  # Dedykowane, publiczne repo cache na Docker Hub. Nazwe uzytkownika trzymamy
+  # w zmiennej repo (Settings -> Secrets and variables -> Actions -> Variables).
+  CACHE_REF: docker.io/${{ vars.DOCKERHUB_USERNAME }}/apka1-cache:buildcache
+
+# Najmniejsze potrzebne uprawnienia tokenu GITHUB_TOKEN
+permissions:
+  contents: read
+  packages: write           # push do ghcr.io
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-scan-publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # QEMU pozwala emulowac arm64 na runnerze amd64 (build wieloarch.)
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      # Sterownik docker-container jest wymagany przez cache typu "registry"
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # Logowanie do ghcr.io wbudowanym tokenem (push obrazu koncowego)
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Logowanie do Docker Hub - tam trzymamy cache (read+write)
+      - name: Log in to Docker Hub (cache)
+        uses: docker/login-action@v3
+        with:
+          username: ${{ vars.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      # Generowanie tagow i etykiet OCI na podstawie zdarzenia gita
+      - name: Docker metadata (tags + labels)
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=ref,event=branch
+            type=ref,event=pr
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=sha,format=long
+          labels: |
+            org.opencontainers.image.title=apka1
+            org.opencontainers.image.description=Aplikacja Pogoda (Java 21, scratch)
+            org.opencontainers.image.authors=Mateusz Michalski
+
+      # KROK 1: build pojedynczej architektury (amd64) i zaladowanie do lokalnego
+      # demona Docker. Demon nie potrafi przechowywac manifestu multi-arch, dlatego
+      # skanujemy reprezentatywny obraz amd64 (te same pakiety OS i ten sam JAR co arm64).
+      # Cache zapisujemy juz tutaj (mode=max), wiec krok 3 odtworzy warstwy amd64.
+      - name: Build image for scan (amd64, load)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64
+          load: true
+          tags: scan-target:${{ github.sha }}
+          cache-from: type=registry,ref=${{ env.CACHE_REF }}
+          cache-to: type=registry,ref=${{ env.CACHE_REF }},mode=max
+          provenance: false
+
+      # KROK 2: skan CVE (Trivy). exit-code=1 przerywa pipeline, gdy znajdzie
+      # podatnosc CRITICAL lub HIGH -> obraz NIE zostanie opublikowany.
+      - name: CVE scan (Trivy) - gate on CRITICAL/HIGH
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: scan-target:${{ github.sha }}
+          scan-type: image
+          format: table
+          severity: CRITICAL,HIGH
+          exit-code: '1'
+          ignore-unfixed: false
+          vuln-type: os,library
+
+      # KROK 3: build wieloarch. (amd64 + arm64) i push do ghcr.io.
+      # Wykona sie tylko jesli skan w kroku 2 przeszedl (brak CRITICAL/HIGH).
+      # Na pull_request push jest wylaczony (walidacja bez publikacji).
+      - name: Build and push (multi-arch)
+        id: push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=registry,ref=${{ env.CACHE_REF }}
+          cache-to: type=registry,ref=${{ env.CACHE_REF }},mode=max
+          provenance: false
+
+      - name: Summary
+        if: ${{ github.event_name != 'pull_request' }}
+        run: |
+          echo "### Opublikowano obraz :rocket:" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          echo "${{ steps.meta.outputs.tags }}" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          echo "Digest: \`${{ steps.push.outputs.digest }}\`" >> "$GITHUB_STEP_SUMMARY"
