@@ -13,3 +13,6 @@ docker logs apka1
 # Liczba warstw i rozmiar obrazu
 docker image inspect apka1:latest --format '{{.Size}}' | numfmt --to=iec # rozmiar
 docker image inspect apka1:latest --format '{{len .RootFS.Layers}}' # warstwy, odfiltrowuje te z metadanymi, co maja 0B
+
+# Odpalenie z registry githuba (zbidowane przez GHA)
+sudo docker run --rm -p 8080:8080 ghcr.io/mrmichalskiprojects/zadanie2:latest
