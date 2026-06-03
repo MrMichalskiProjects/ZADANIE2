@@ -7,9 +7,9 @@ name: build-publish
 on:
   push:
     branches: [main]
-    tags: ['v*.*.*']          # wydania semver: v1.2.3
-  pull_request:               # na PR-ach budujemy i skanujemy, ale NIE publikujemy
-  workflow_dispatch:          # mozliwosc recznego uruchomienia
+    tags: ["v*.*.*"] # wydania semver: v1.2.3
+  pull_request: # na PR-ach budujemy i skanujemy, ale NIE publikujemy
+  workflow_dispatch: # mozliwosc recznego uruchomienia
 
 env:
   REGISTRY: ghcr.io
@@ -22,7 +22,7 @@ env:
 # Najmniejsze potrzebne uprawnienia tokenu GITHUB_TOKEN
 permissions:
   contents: read
-  packages: write           # push do ghcr.io
+  packages: write # push do ghcr.io
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -94,13 +94,13 @@ jobs:
       # KROK 2: skan CVE (Trivy). exit-code=1 przerywa pipeline, gdy znajdzie
       # podatnosc CRITICAL lub HIGH -> obraz NIE zostanie opublikowany.
       - name: CVE scan (Trivy) - gate on CRITICAL/HIGH
-        uses: aquasecurity/trivy-action@v0.28.0
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: scan-target:${{ github.sha }}
           scan-type: image
           format: table
           severity: CRITICAL,HIGH
-          exit-code: '1'
+          exit-code: "1"
           ignore-unfixed: false
           vuln-type: os,library
 
